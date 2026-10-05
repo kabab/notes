@@ -1,0 +1,18 @@
+[package]
+name = "notes"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+# staticlib/cdylib are needed for the future mobile (Android) builds.
+name = "notes_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+serde.workspace = true
+vault-core = { path = "../crates/vault-core" }
+tauri-plugin-dialog = "2"

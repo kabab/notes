@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/vault-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = "1"
+ts-rs = "12"
+
+# Optimize dependencies (image decoding/resizing, WebP, SQLite) even in dev builds;
+# our own crates stay unoptimized for fast rebuilds.
+[profile.dev.package."*"]
+opt-level = 2
