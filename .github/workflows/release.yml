@@ -1,0 +1,95 @@
+# Builds the macOS app and publishes a GitHub release when a version tag is pushed:
+#   git tag v0.2.0 && git push origin v0.2.0
+# The tag must match the version in package.json, Cargo.toml and tauri.conf.json.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for v in \
+            "$(jq -r .version package.json)" \
+            "$(jq -r .version src-tauri/tauri.conf.json)" \
+            "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; do
+            if [ "$v" != "$tag" ]; then
+              echo "::error::Tag v$tag does not match version $v"
+              exit 1
+            fi
+          done
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: cargo test --workspace
+
+  release:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG.md section for $version"
+            exit 1
+          fi
+          cat >> release-notes.md <<'NOTE'
+
+          ---
+          **Installing:** download the `.dmg`, drag Notes to Applications. The app is not notarized, so the first launch needs right-click → Open (or `xattr -dr com.apple.quarantine /Applications/Notes.app`).
+          NOTE
+
+      # One universal .dmg that runs on Apple Silicon and Intel Macs.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Notes ${{ github.ref_name }}
+          releaseBodyPath: release-notes.md
+          releaseDraft: false
+          prerelease: false
+          args: --target universal-apple-darwin
